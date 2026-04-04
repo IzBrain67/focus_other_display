@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <!-- Background gradient -->
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#6C5CE7"/>
+      <stop offset="100%" stop-color="#4834D4"/>
+    </linearGradient>
+    <!-- Monitor screen gradient -->
+    <linearGradient id="screenGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#2D3436"/>
+      <stop offset="100%" stop-color="#1E272E"/>
+    </linearGradient>
+    <!-- Active screen glow -->
+    <linearGradient id="activeScreen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#74B9FF"/>
+      <stop offset="100%" stop-color="#0984E3"/>
+    </linearGradient>
+    <!-- Arrow gradient -->
+    <linearGradient id="arrowGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#FFEAA7"/>
+      <stop offset="100%" stop-color="#FDCB6E"/>
+    </linearGradient>
+    <!-- Shadow filter -->
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#000" flood-opacity="0.3"/>
+    </filter>
+    <filter id="innerShadow" x="-5%" y="-5%" width="110%" height="110%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000" flood-opacity="0.2"/>
+    </filter>
+    <!-- Glow for arrow -->
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="4" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- macOS-style rounded rectangle background -->
+  <rect x="32" y="32" width="448" height="448" rx="100" ry="100" fill="url(#bgGrad)"/>
+  <!-- Subtle inner highlight -->
+  <rect x="32" y="32" width="448" height="224" rx="100" ry="100" fill="white" opacity="0.08"/>
+
+  <!-- Left monitor -->
+  <g filter="url(#shadow)">
+    <!-- Monitor body -->
+    <rect x="76" y="140" width="150" height="110" rx="10" ry="10" fill="#DFE6E9"/>
+    <!-- Bezel highlight -->
+    <rect x="76" y="140" width="150" height="4" rx="10" ry="10" fill="white" opacity="0.5"/>
+    <!-- Screen -->
+    <rect x="86" y="150" width="130" height="85" rx="4" ry="4" fill="url(#screenGrad)"/>
+    <!-- Screen content lines (dimmed - inactive) -->
+    <rect x="98" y="168" width="60" height="4" rx="2" fill="#636E72" opacity="0.5"/>
+    <rect x="98" y="180" width="45" height="4" rx="2" fill="#636E72" opacity="0.5"/>
+    <rect x="98" y="192" width="55" height="4" rx="2" fill="#636E72" opacity="0.5"/>
+    <rect x="98" y="204" width="35" height="4" rx="2" fill="#636E72" opacity="0.5"/>
+    <!-- Stand -->
+    <rect x="136" y="250" width="30" height="20" rx="2" fill="#B2BEC3"/>
+    <rect x="116" y="268" width="70" height="6" rx="3" fill="#B2BEC3"/>
+  </g>
+
+  <!-- Right monitor -->
+  <g filter="url(#shadow)">
+    <!-- Monitor body -->
+    <rect x="286" y="140" width="150" height="110" rx="10" ry="10" fill="#DFE6E9"/>
+    <!-- Bezel highlight -->
+    <rect x="286" y="140" width="150" height="4" rx="10" ry="10" fill="white" opacity="0.5"/>
+    <!-- Screen (active - highlighted) -->
+    <rect x="296" y="150" width="130" height="85" rx="4" ry="4" fill="url(#activeScreen)"/>
+    <!-- Screen content lines (bright - active) -->
+    <rect x="308" y="168" width="60" height="4" rx="2" fill="white" opacity="0.8"/>
+    <rect x="308" y="180" width="45" height="4" rx="2" fill="white" opacity="0.8"/>
+    <rect x="308" y="192" width="55" height="4" rx="2" fill="white" opacity="0.8"/>
+    <rect x="308" y="204" width="35" height="4" rx="2" fill="white" opacity="0.8"/>
+    <!-- Active indicator glow -->
+    <rect x="296" y="150" width="130" height="85" rx="4" ry="4" fill="white" opacity="0.1"/>
+    <!-- Stand -->
+    <rect x="346" y="250" width="30" height="20" rx="2" fill="#B2BEC3"/>
+    <rect x="326" y="268" width="70" height="6" rx="3" fill="#B2BEC3"/>
+  </g>
+
+  <!-- Focus switch arrow -->
+  <g filter="url(#glow)">
+    <!-- Arrow body (curved path from left to right) -->
+    <path d="M 210 320 C 230 360, 280 360, 300 320"
+          stroke="url(#arrowGrad)" stroke-width="8" fill="none" stroke-linecap="round"/>
+    <!-- Arrow head -->
+    <polygon points="302,314 314,326 296,328" fill="#FDCB6E"/>
+  </g>
+
+  <!-- Cursor icon on right monitor -->
+  <g transform="translate(340, 180)">
+    <path d="M 0 0 L 0 18 L 5 14 L 9 22 L 13 20 L 9 12 L 15 12 Z"
+          fill="white" stroke="white" stroke-width="0.5" opacity="0.9"/>
+  </g>
+
+  <!-- App name label -->
+  <text x="256" y="410" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', sans-serif"
+        font-size="28" font-weight="600" fill="white" opacity="0.9" letter-spacing="0.5">
+    Focus Display
+  </text>
+</svg>

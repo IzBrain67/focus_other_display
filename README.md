@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="icon.svg" width="128" height="128" alt="focus_other_display icon">
+</p>
+
 # focus_other_display
 
 macOS のデュアルディスプレイ環境で、反対側のディスプレイの最前面ウィンドウにフォーカスを切り替えるツール。
