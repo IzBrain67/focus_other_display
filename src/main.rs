@@ -32,6 +32,16 @@ fn display_index_for_x(displays: &[DisplayInfo], center_x: f64) -> usize {
 }
 
 fn main() {
+    // 0. 引数パース
+    let args: Vec<String> = std::env::args().collect();
+    let direction: Option<&str> = args.get(1).map(|s| s.as_str());
+    if let Some(d) = direction {
+        if d != "left" && d != "right" {
+            eprintln!("Usage: focus_other_display [left|right]");
+            process::exit(1);
+        }
+    }
+
     // 1. ディスプレイ情報
     let displays = display::get_displays();
     if displays.len() < 2 {
@@ -56,7 +66,17 @@ fn main() {
         .unwrap_or(0);
 
     // 5. ターゲットディスプレイ
-    let target_display_idx = if current_display_idx == 0 { 1 } else { 0 };
+    let target_display_idx = match direction {
+        Some("left") => 0,
+        Some("right") => 1,
+        _ => if current_display_idx == 0 { 1 } else { 0 },
+    };
+
+    if target_display_idx == current_display_idx {
+        println!("既にターゲットディスプレイにいます");
+        process::exit(0);
+    }
+
     let target_display = &displays[target_display_idx];
 
     // 6. ターゲットウィンドウ検索
