@@ -4,18 +4,18 @@
 
 # focus_other_display
 
-macOS のデュアルディスプレイ環境で、反対側のディスプレイの最前面ウィンドウにフォーカスを切り替えるツール。
+macOS のデュアルディスプレイ環境で、もう一方のディスプレイの最前面ウィンドウにフォーカスを切り替えるツール。
 
 ## 必要な環境
 
 - macOS
 - Rust (nightly) — edition 2024 を使用
-- デュア���ディスプレイ構成
+- デュアルディスプレイ構成
 
 ### macOS 権限
 
 - **アクセシビリティ** (システム設定 > プライバシーとセキュリティ > アクセシビリティ) — ウィンドウの操作に必要
-- **画面収録** (同 > 画面収録とシステムオーディオ録音) �� ウィンドウタイトルの取得に必要（なくても動作する）
+- **画面収録** (同 > 画面収録とシステムオーディオ録音) — ウィンドウタイトルの取得に必要（なくても動作する）
 
 ## ビルド・実行
 
@@ -24,15 +24,25 @@ cargo build --release
 ./target/release/focus_other_display
 ```
 
+## 使い方
+
+```sh
+./focus_other_display          # 反対側のディスプレイへトグル
+./focus_other_display first    # メインディスプレイ（メニューバーのある画面）へ
+./focus_other_display second   # サブディスプレイへ
+```
+
+`first` / `second` はディスプレイの物理配置（左右・上下）に依存しません。
+
 ## 動作
 
 1. 現在フォーカス中のウィンドウがどのディスプレイにあるか判定
-2. 反対側のディスプレイで最前面にあるウィンド��を特定
+2. ターゲットディスプレイで最前面にあるウィンドウを特定
 3. マウスカーソルをそのウィンドウの中央に移動
-4. `AXRaise` でウィンドウを前面化し、キーボー���フォーカスを移動
+4. `AXRaise` でウィンドウを前面化し、キーボードフォーカスを移動
 
 ```
-OK: 右 [WezTerm] → 左 [Google Chrome - GitHub]
+OK: second(サブ) [WezTerm] → first(メイン) [Google Chrome - GitHub]
 ```
 
 ## キーボードショートカットへの登録例
@@ -49,10 +59,10 @@ end)
 
 ```
 src/
-  main.rs           -- エントリポイント、メ��ンロジック
+  main.rs           -- エントリポイント、メインロジック
   appkit.rs          -- フロントアプリ取得 (NSWorkspace)
-  display.rs         -- ディスプレイ情報取得 (NSScreen)
-  window.rs          -- ウィン���ウ一括取得 (CGWindowList)
+  display.rs         -- ディスプレイ情報取得 (CGDisplay)
+  window.rs          -- ウィンドウ一括取得 (CGWindowList)
   accessibility.rs   -- AXRaise によるウィンドウ前面化
-  cursor.rs          -- マ���スカーソル移動 (CGEvent)
+  cursor.rs          -- マウスカーソル移動 (CGEvent)
 ```

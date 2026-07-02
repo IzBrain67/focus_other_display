@@ -8,11 +8,17 @@ mod window;
 use objc::{msg_send, sel, sel_impl};
 use objc::runtime::{Class, Object, BOOL};
 use core_graphics::display::CGRect;
+use core_graphics::geometry::CGPoint;
 use std::process;
 
 pub struct DisplayInfo {
-    pub x: f64,
-    pub w: f64,
+    pub bounds: CGRect,
+}
+
+impl DisplayInfo {
+    pub fn contains(&self, x: f64, y: f64) -> bool {
+        self.bounds.contains(&CGPoint::new(x, y))
+    }
 }
 
 pub struct WindowInfo {
@@ -22,22 +28,24 @@ pub struct WindowInfo {
     pub bounds: CGRect,
 }
 
-fn display_index_for_x(displays: &[DisplayInfo], center_x: f64) -> usize {
-    for (i, d) in displays.iter().enumerate() {
-        if center_x >= d.x && center_x < d.x + d.w {
-            return i;
-        }
-    }
-    0
+fn display_index_for_point(displays: &[DisplayInfo], x: f64, y: f64) -> usize {
+    displays.iter().position(|d| d.contains(x, y)).unwrap_or(0)
+}
+
+fn display_label(idx: usize) -> &'static str {
+    if idx == 0 { "first(メイン)" } else { "second(サブ)" }
 }
 
 fn main() {
     // 0. 引数パース
     let args: Vec<String> = std::env::args().collect();
-    let direction: Option<&str> = args.get(1).map(|s| s.as_str());
-    if let Some(d) = direction {
-        if d != "left" && d != "right" {
-            eprintln!("Usage: focus_other_display [left|right]");
+    let target_arg: Option<&str> = args.get(1).map(|s| s.as_str());
+    if let Some(t) = target_arg {
+        if t != "first" && t != "second" {
+            eprintln!("Usage: focus_other_display [first|second]");
+            eprintln!("  first  = メインディスプレイ(メニューバーのある画面)");
+            eprintln!("  second = サブディスプレイ");
+            eprintln!("  引数なし = 反対側のディスプレイへトグル");
             process::exit(1);
         }
     }
@@ -61,14 +69,15 @@ fn main() {
         .find(|w| w.pid == front_pid)
         .map(|w| {
             let cx = w.bounds.origin.x + w.bounds.size.width / 2.0;
-            display_index_for_x(&displays, cx)
+            let cy = w.bounds.origin.y + w.bounds.size.height / 2.0;
+            display_index_for_point(&displays, cx, cy)
         })
         .unwrap_or(0);
 
     // 5. ターゲットディスプレイ
-    let target_display_idx = match direction {
-        Some("left") => 0,
-        Some("right") => 1,
+    let target_display_idx = match target_arg {
+        Some("first") => 0,
+        Some("second") => 1,
         _ => if current_display_idx == 0 { 1 } else { 0 },
     };
 
@@ -82,20 +91,14 @@ fn main() {
     // 6. ターゲットウィンドウ検索
     let target = windows.iter().find(|w| {
         let cx = w.bounds.origin.x + w.bounds.size.width / 2.0;
-        let on_target = cx >= target_display.x && cx < target_display.x + target_display.w;
-
-        // 現在のアプリのターゲットディスプレイ外のウィンドウはスキップ
-        if w.pid == front_pid && !on_target {
-            return false;
-        }
-
-        on_target
+        let cy = w.bounds.origin.y + w.bounds.size.height / 2.0;
+        target_display.contains(cx, cy)
     });
 
     let target = match target {
         Some(t) => t,
         None => {
-            eprintln!("ERROR: 反対側のディスプレイにウィンドウが見つかりません");
+            eprintln!("ERROR: ターゲットディスプレイにウィンドウが見つかりません");
             process::exit(1);
         }
     };
@@ -119,8 +122,8 @@ fn main() {
     }
 
     // 9. 結果出力
-    let src_name = if current_display_idx == 0 { "左" } else { "右" };
-    let dst_name = if target_display_idx == 0 { "左" } else { "右" };
+    let src_name = display_label(current_display_idx);
+    let dst_name = display_label(target_display_idx);
     let title = if target.title.is_empty() {
         "(untitled)"
     } else {
