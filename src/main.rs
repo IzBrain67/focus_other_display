@@ -28,6 +28,18 @@ pub struct WindowInfo {
     pub bounds: CGRect,
 }
 
+fn rect_center(r: &CGRect) -> (f64, f64) {
+    (
+        r.origin.x + r.size.width / 2.0,
+        r.origin.y + r.size.height / 2.0,
+    )
+}
+
+fn on_display(w: &WindowInfo, d: &DisplayInfo) -> bool {
+    let (cx, cy) = rect_center(&w.bounds);
+    d.contains(cx, cy)
+}
+
 fn display_index_for_point(displays: &[DisplayInfo], x: f64, y: f64) -> usize {
     displays.iter().position(|d| d.contains(x, y)).unwrap_or(0)
 }
@@ -64,13 +76,18 @@ fn main() {
     let windows = window::get_windows();
 
     // 4. 現在のディスプレイ判定
-    let current_display_idx = windows
-        .iter()
-        .find(|w| w.pid == front_pid)
-        .map(|w| {
-            let cx = w.bounds.origin.x + w.bounds.size.width / 2.0;
-            let cy = w.bounds.origin.y + w.bounds.size.height / 2.0;
+    //    優先: AXFocusedWindow(キーボードフォーカスを持つウィンドウ)
+    //    フォールバック: CGWindowList 上のフロントアプリ最上位ウィンドウ(AX 権限なし・未対応アプリ用)
+    let current_display_idx = accessibility::get_focused_window_bounds(front_pid)
+        .map(|b| {
+            let (cx, cy) = rect_center(&b);
             display_index_for_point(&displays, cx, cy)
+        })
+        .or_else(|| {
+            windows.iter().find(|w| w.pid == front_pid).map(|w| {
+                let (cx, cy) = rect_center(&w.bounds);
+                display_index_for_point(&displays, cx, cy)
+            })
         })
         .unwrap_or(0);
 
@@ -89,11 +106,16 @@ fn main() {
     let target_display = &displays[target_display_idx];
 
     // 6. ターゲットウィンドウ検索
-    let target = windows.iter().find(|w| {
-        let cx = w.bounds.origin.x + w.bounds.size.width / 2.0;
-        let cy = w.bounds.origin.y + w.bounds.size.height / 2.0;
-        target_display.contains(cx, cy)
-    });
+    //    first/second 明示指定時のみ、フロントアプリ自身のウィンドウを優先
+    //    (windows は Z-order 順なので find = そのディスプレイ上の最上位)
+    let target = if target_arg.is_some() {
+        windows
+            .iter()
+            .find(|w| w.pid == front_pid && on_display(w, target_display))
+            .or_else(|| windows.iter().find(|w| on_display(w, target_display)))
+    } else {
+        windows.iter().find(|w| on_display(w, target_display))
+    };
 
     let target = match target {
         Some(t) => t,
@@ -104,8 +126,7 @@ fn main() {
     };
 
     // 7. マウス移動
-    let center_x = target.bounds.origin.x + target.bounds.size.width / 2.0;
-    let center_y = target.bounds.origin.y + target.bounds.size.height / 2.0;
+    let (center_x, center_y) = rect_center(&target.bounds);
     cursor::move_mouse(center_x, center_y);
 
     // 8. AXRaise + frontmost

@@ -34,12 +34,14 @@ cargo build --release
 
 `first` / `second` はディスプレイの物理配置（左右・上下）に依存しません。
 
+`first` / `second` を明示した場合、現在のフロントアプリがターゲットディスプレイにもウィンドウを持っていれば、そのアプリのウィンドウを優先してフォーカスします（例: Chrome のウィンドウが両画面にあるとき、`first` で first 側の Chrome ウィンドウへ）。持っていなければターゲットディスプレイの最前面ウィンドウ（アプリ不問）へ移ります。引数なしのトグルは常にアプリ不問で反対側の最前面ウィンドウへ移ります。
+
 ## 動作
 
-1. 現在フォーカス中のウィンドウがどのディスプレイにあるか判定
-2. ターゲットディスプレイで最前面にあるウィンドウを特定
+1. 現在フォーカス中のウィンドウ（`AXFocusedWindow`）がどのディスプレイにあるか判定（取得できない場合は CGWindowList で判定）
+2. ターゲットディスプレイでフォーカスすべきウィンドウを特定（`first`/`second` 明示時はフロントアプリのウィンドウを優先）
 3. マウスカーソルをそのウィンドウの中央に移動
-4. `AXRaise` でウィンドウを前面化し、キーボードフォーカスを移動
+4. `AXMain` + `AXRaise` でウィンドウを前面化・キーウィンドウ化し、キーボードフォーカスを移動
 
 ```
 OK: second(サブ) [WezTerm] → first(メイン) [Google Chrome - GitHub]
@@ -63,6 +65,6 @@ src/
   appkit.rs          -- フロントアプリ取得 (NSWorkspace)
   display.rs         -- ディスプレイ情報取得 (CGDisplay)
   window.rs          -- ウィンドウ一括取得 (CGWindowList)
-  accessibility.rs   -- AXRaise によるウィンドウ前面化
+  accessibility.rs   -- AXMain/AXRaise によるウィンドウ前面化、AXFocusedWindow 取得
   cursor.rs          -- マウスカーソル移動 (CGEvent)
 ```

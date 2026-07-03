@@ -2,7 +2,7 @@ use core_foundation::array::{CFArrayGetCount, CFArrayGetValueAtIndex, CFArrayRef
 use core_foundation::base::{CFRelease, CFTypeRef, TCFType};
 use core_foundation::string::{CFString, CFStringRef};
 use core_graphics::display::CGRect;
-use core_graphics::geometry::CGPoint;
+use core_graphics::geometry::{CGPoint, CGSize};
 use std::ffi::c_void;
 
 #[link(name = "ApplicationServices", kind = "framework")]
@@ -25,6 +25,75 @@ unsafe extern "C" {
 const AX_VALUE_TYPE_CGPOINT: u32 = 1;
 const AX_VALUE_TYPE_CGSIZE: u32 = 2;
 
+/// AX ウィンドウ要素の AXPosition/AXSize から CGRect を構成する。
+/// 座標は CGWindowList と同じ CG 座標系(グローバル・左上原点)。
+/// win は借用として扱い、この関数内では release しない。
+unsafe fn ax_window_rect(win: CFTypeRef) -> Option<CGRect> {
+    unsafe {
+        let pos_attr = CFString::new("AXPosition");
+        let mut pos_ref: CFTypeRef = std::ptr::null();
+        if AXUIElementCopyAttributeValue(win, pos_attr.as_concrete_TypeRef(), &mut pos_ref) != 0
+            || pos_ref.is_null()
+        {
+            return None;
+        }
+        let mut pos = CGPoint::new(0.0, 0.0);
+        let pos_ok = AXValueGetValue(
+            pos_ref,
+            AX_VALUE_TYPE_CGPOINT,
+            &mut pos as *mut CGPoint as *mut c_void,
+        );
+        CFRelease(pos_ref);
+        if !pos_ok {
+            return None;
+        }
+
+        let size_attr = CFString::new("AXSize");
+        let mut size_ref: CFTypeRef = std::ptr::null();
+        if AXUIElementCopyAttributeValue(win, size_attr.as_concrete_TypeRef(), &mut size_ref) != 0
+            || size_ref.is_null()
+        {
+            return None;
+        }
+        let mut size = CGSize::new(0.0, 0.0);
+        let size_ok = AXValueGetValue(
+            size_ref,
+            AX_VALUE_TYPE_CGSIZE,
+            &mut size as *mut CGSize as *mut c_void,
+        );
+        CFRelease(size_ref);
+        if !size_ok {
+            return None;
+        }
+
+        Some(CGRect::new(&pos, &size))
+    }
+}
+
+/// フロントアプリの AXFocusedWindow(キーボードフォーカスを持つウィンドウ)の bounds。
+/// アクセシビリティ権限がない・アプリが AX 未対応などの場合は None。
+pub fn get_focused_window_bounds(pid: i32) -> Option<CGRect> {
+    unsafe {
+        let app = AXUIElementCreateApplication(pid);
+        if app.is_null() {
+            return None;
+        }
+        let attr = CFString::new("AXFocusedWindow");
+        let mut win_ref: CFTypeRef = std::ptr::null();
+        let err = AXUIElementCopyAttributeValue(app, attr.as_concrete_TypeRef(), &mut win_ref);
+        if err != 0 || win_ref.is_null() {
+            CFRelease(app);
+            return None;
+        }
+        let rect = ax_window_rect(win_ref);
+        // AXFocusedWindow は Copy ルールで返るため release が必要
+        // (AXWindows 配列の要素は Get ルールで release 禁止)
+        CFRelease(win_ref);
+        CFRelease(app);
+        rect
+    }
+}
+
 pub fn ax_raise_window(pid: i32, target_bounds: &CGRect) -> bool {
     unsafe {
         let app = AXUIElementCreateApplication(pid);
@@ -45,64 +114,39 @@ pub fn ax_raise_window(pid: i32, target_bounds: &CGRect) -> bool {
 
         for i in 0..count {
             let win = CFArrayGetValueAtIndex(windows_ref as CFArrayRef, i);
-
-            // Get AXPosition
-            let pos_attr = CFString::new("AXPosition");
-            let mut pos_ref: CFTypeRef = std::ptr::null();
-            if AXUIElementCopyAttributeValue(win, pos_attr.as_concrete_TypeRef(), &mut pos_ref) != 0
-            {
+            let Some(rect) = ax_window_rect(win) else {
                 continue;
-            }
-            let mut pos = CGPoint::new(0.0, 0.0);
-            if !AXValueGetValue(
-                pos_ref,
-                AX_VALUE_TYPE_CGPOINT,
-                &mut pos as *mut CGPoint as *mut c_void,
-            ) {
-                CFRelease(pos_ref);
-                continue;
-            }
-            CFRelease(pos_ref);
-
-            // Get AXSize
-            let size_attr = CFString::new("AXSize");
-            let mut size_ref: CFTypeRef = std::ptr::null();
-            if AXUIElementCopyAttributeValue(win, size_attr.as_concrete_TypeRef(), &mut size_ref)
-                != 0
-            {
-                continue;
-            }
-            let mut size = core_graphics::geometry::CGSize::new(0.0, 0.0);
-            if !AXValueGetValue(
-                size_ref,
-                AX_VALUE_TYPE_CGSIZE,
-                &mut size as *mut core_graphics::geometry::CGSize as *mut c_void,
-            ) {
-                CFRelease(size_ref);
-                continue;
-            }
-            CFRelease(size_ref);
+            };
 
             // Match by position (within tolerance)
-            let dx = (pos.x - target_bounds.origin.x).abs();
-            let dy = (pos.y - target_bounds.origin.y).abs();
-            let dw = (size.width - target_bounds.size.width).abs();
-            let dh = (size.height - target_bounds.size.height).abs();
+            let dx = (rect.origin.x - target_bounds.origin.x).abs();
+            let dy = (rect.origin.y - target_bounds.origin.y).abs();
+            let dw = (rect.size.width - target_bounds.size.width).abs();
+            let dh = (rect.size.height - target_bounds.size.height).abs();
 
             if dx < 5.0 && dy < 5.0 && dw < 5.0 && dh < 5.0 {
-                // AXRaise
-                let raise_action = CFString::new("AXRaise");
-                AXUIElementPerformAction(win, raise_action.as_concrete_TypeRef());
+                let cf_true = core_foundation::boolean::CFBoolean::true_value();
 
-                // Set app frontmost
+                // 先にアプリを frontmost にする。背面のまま AXMain を設定しても、
+                // アクティベーション時にアプリが前回のキーウィンドウを復元して上書きされるため
                 let frontmost_attr = CFString::new("AXFrontmost");
-                let true_val =
-                    core_foundation::boolean::CFBoolean::true_value().as_CFTypeRef();
                 AXUIElementSetAttributeValue(
                     app,
                     frontmost_attr.as_concrete_TypeRef(),
-                    true_val,
+                    cf_true.as_CFTypeRef(),
                 );
+
+                // AXMain: 最前面のアプリ内でキーウィンドウを切り替える
+                let main_attr = CFString::new("AXMain");
+                AXUIElementSetAttributeValue(
+                    win,
+                    main_attr.as_concrete_TypeRef(),
+                    cf_true.as_CFTypeRef(),
+                );
+
+                // AXRaise
+                let raise_action = CFString::new("AXRaise");
+                AXUIElementPerformAction(win, raise_action.as_concrete_TypeRef());
 
                 found = true;
                 break;
