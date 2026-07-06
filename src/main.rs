@@ -106,16 +106,8 @@ fn main() {
     let target_display = &displays[target_display_idx];
 
     // 6. ターゲットウィンドウ検索
-    //    first/second 明示指定時のみ、フロントアプリ自身のウィンドウを優先
     //    (windows は Z-order 順なので find = そのディスプレイ上の最上位)
-    let target = if target_arg.is_some() {
-        windows
-            .iter()
-            .find(|w| w.pid == front_pid && on_display(w, target_display))
-            .or_else(|| windows.iter().find(|w| on_display(w, target_display)))
-    } else {
-        windows.iter().find(|w| on_display(w, target_display))
-    };
+    let target = windows.iter().find(|w| on_display(w, target_display));
 
     let target = match target {
         Some(t) => t,
