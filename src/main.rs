@@ -48,6 +48,12 @@ fn display_label(idx: usize) -> &'static str {
     if idx == 0 { "first(メイン)" } else { "second(サブ)" }
 }
 
+pub fn debug_log(msg: &str) {
+    if std::env::var_os("FOD_DEBUG").is_some() {
+        eprintln!("[FOD_DEBUG] {msg}");
+    }
+}
+
 fn main() {
     // 0. 引数パース
     let args: Vec<String> = std::env::args().collect();
@@ -75,34 +81,43 @@ fn main() {
     // 3. 全ウィンドウ取得 (Z-order順)
     let windows = window::get_windows();
 
-    // 4. 現在のディスプレイ判定
+    // 4. 現在のディスプレイ判定(トグルの方向決定と結果表示に使う)
     //    優先: AXFocusedWindow(キーボードフォーカスを持つウィンドウ)
     //    フォールバック: CGWindowList 上のフロントアプリ最上位ウィンドウ(AX 権限なし・未対応アプリ用)
+    debug_log(&format!("front app: {front_app_name} (pid {front_pid})"));
     let current_display_idx = accessibility::get_focused_window_bounds(front_pid)
         .map(|b| {
             let (cx, cy) = rect_center(&b);
-            display_index_for_point(&displays, cx, cy)
+            let idx = display_index_for_point(&displays, cx, cy);
+            debug_log(&format!(
+                "現在地: AXFocusedWindow center=({cx:.0},{cy:.0}) → display {idx}"
+            ));
+            idx
         })
         .or_else(|| {
             windows.iter().find(|w| w.pid == front_pid).map(|w| {
                 let (cx, cy) = rect_center(&w.bounds);
-                display_index_for_point(&displays, cx, cy)
+                let idx = display_index_for_point(&displays, cx, cy);
+                debug_log(&format!(
+                    "現在地: CGWindowList フォールバック center=({cx:.0},{cy:.0}) → display {idx}"
+                ));
+                idx
             })
         })
-        .unwrap_or(0);
+        .unwrap_or_else(|| {
+            debug_log("現在地: 判定不能 → display 0 とみなす");
+            0
+        });
 
     // 5. ターゲットディスプレイ
+    //    first/second 明示時は現在地判定に依存せず固定する。空のデスクトップが見えていても
+    //    キーボードフォーカスは別ディスプレイのウィンドウに残っていることがあり、
+    //    「既にターゲットにいる」と判断して何もしないと、その状態から抜け出せなくなるため
     let target_display_idx = match target_arg {
         Some("first") => 0,
         Some("second") => 1,
         _ => if current_display_idx == 0 { 1 } else { 0 },
     };
-
-    if target_display_idx == current_display_idx {
-        println!("既にターゲットディスプレイにいます");
-        process::exit(0);
-    }
-
     let target_display = &displays[target_display_idx];
 
     // 6. ターゲットウィンドウ検索
@@ -116,6 +131,10 @@ fn main() {
             process::exit(1);
         }
     };
+    debug_log(&format!(
+        "ターゲット: display {target_display_idx} 最前面 [{}] {}",
+        target.owner_name, target.title
+    ));
 
     // 7. マウス移動
     let (center_x, center_y) = rect_center(&target.bounds);

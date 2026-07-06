@@ -8,6 +8,8 @@ use std::ffi::c_void;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
+use crate::debug_log;
+
 #[link(name = "ApplicationServices", kind = "framework")]
 unsafe extern "C" {
     fn AXUIElementCreateApplication(pid: i32) -> CFTypeRef;
@@ -36,12 +38,6 @@ fn rect_matches(a: &CGRect, b: &CGRect) -> bool {
         && (a.origin.y - b.origin.y).abs() < BOUNDS_TOLERANCE
         && (a.size.width - b.size.width).abs() < BOUNDS_TOLERANCE
         && (a.size.height - b.size.height).abs() < BOUNDS_TOLERANCE
-}
-
-fn debug_log(msg: &str) {
-    if std::env::var_os("FOD_DEBUG").is_some() {
-        eprintln!("[FOD_DEBUG] {msg}");
-    }
 }
 
 /// AX ウィンドウ要素の AXPosition/AXSize から CGRect を構成する。
