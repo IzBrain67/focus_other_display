@@ -4,56 +4,56 @@
 
 # focus_other_display
 
-macOS のデュアルディスプレイ環境で、もう一方のディスプレイの最前面ウィンドウにフォーカスを切り替えるツール。
+A macOS tool that switches focus to the frontmost window on the other display in a dual-display setup.
 
-## 必要な環境
+## Requirements
 
 - macOS
-- Rust (nightly) — edition 2024 を使用
-- デュアルディスプレイ構成
+- Rust (nightly) — uses edition 2024
+- A dual-display setup
 
-### macOS 権限
+### macOS permissions
 
-- **アクセシビリティ** (システム設定 > プライバシーとセキュリティ > アクセシビリティ) — ウィンドウの操作に必要
-- **画面収録** (同 > 画面収録とシステムオーディオ録音) — ウィンドウタイトルの取得に必要（なくても動作する）
+- **Accessibility** (System Settings > Privacy & Security > Accessibility) — required to manipulate windows
+- **Screen Recording** (same > Screen & System Audio Recording) — used to read window titles (the tool works without it)
 
-## ビルド・実行
+## Build & run
 
 ```sh
 cargo build --release
 ./target/release/focus_other_display
 ```
 
-## 使い方
+## Usage
 
 ```sh
-./focus_other_display          # 反対側のディスプレイへトグル
-./focus_other_display first    # メインディスプレイ（メニューバーのある画面）へ
-./focus_other_display second   # サブディスプレイへ
+./focus_other_display          # toggle to the opposite display
+./focus_other_display first    # to the main display (the one with the menu bar)
+./focus_other_display second   # to the secondary display
 ```
 
-`first` / `second` はディスプレイの物理配置（左右・上下）に依存しません。
+`first` / `second` do not depend on the physical arrangement (left/right, top/bottom) of the displays.
 
-引数の有無にかかわらず、フォーカス先は常にターゲットディスプレイの最前面ウィンドウ（アプリ不問）です。`first` / `second` は現在のフォーカス位置に関係なく動作するので、ウィンドウのない空のデスクトップが見えている状態からでも使えます。
+With or without an argument, the focus target is always the topmost window on the target display, regardless of app. `first` / `second` work independently of where keyboard focus currently is, so they can be used even while you are looking at an empty desktop with no windows.
 
-ターゲットディスプレイにウィンドウが1つもない場合は、デスクトップ中央をクリックしてそのディスプレイ自体をフォーカスします。Ctrl+矢印キーでの Space 切り替えや、新規ウィンドウのオープン先がそのディスプレイになります。
+If the target display has no windows at all, the tool clicks the center of its desktop to focus the display itself: Ctrl+arrow Space switching and newly opened windows will then target that display.
 
-`FOD_DEBUG=1` を付けて実行すると、ウィンドウ特定・フォーカス確定の診断ログを stderr に出力します。
+Run with `FOD_DEBUG=1` to print diagnostics about window matching and focus confirmation to stderr.
 
-## 動作
+## How it works
 
-1. 引数なしの場合、現在フォーカス中のウィンドウ（`AXFocusedWindow`）がどのディスプレイにあるかを判定し、反対側をターゲットにする（取得できない場合は CGWindowList → マウス位置の順で判定。`first`/`second` 明示時は現在地に関係なくそのディスプレイがターゲット）
-2. ターゲットディスプレイの最前面ウィンドウを特定（ウィンドウがなければデスクトップ中央をクリックしてそのディスプレイをフォーカスし、終了）
-3. マウスカーソルをそのウィンドウの中央に移動
-4. `AXMain` + `AXRaise` でウィンドウを前面化・キーウィンドウ化し、キーボードフォーカスを移動
+1. With no argument, determine which display the currently focused window (`AXFocusedWindow`) is on and target the opposite one (falling back to CGWindowList, then to the mouse position; with an explicit `first`/`second`, the target is that display regardless of the current location)
+2. Find the topmost window on the target display (if there are no windows, click the center of the desktop to focus the display itself and exit)
+3. Move the mouse cursor to the center of that window
+4. Bring the window forward and make it the key window with `AXMain` + `AXRaise`, moving keyboard focus
 
 ```
 OK: second(サブ) [WezTerm] → first(メイン) [Google Chrome - GitHub]
 ```
 
-## キーボードショートカットへの登録例
+## Binding to a keyboard shortcut
 
-[Hammerspoon](https://www.hammerspoon.org/) で `Ctrl+Space` に割り当てる場合:
+To bind it to `Ctrl+Space` with [Hammerspoon](https://www.hammerspoon.org/):
 
 ```lua
 hs.hotkey.bind({"ctrl"}, "space", function()
@@ -61,14 +61,14 @@ hs.hotkey.bind({"ctrl"}, "space", function()
 end)
 ```
 
-## プロジェクト構成
+## Project layout
 
 ```
 src/
-  main.rs           -- エントリポイント、メインロジック
-  appkit.rs          -- フロントアプリ取得 (NSWorkspace)
-  display.rs         -- ディスプレイ情報取得 (CGDisplay)
-  window.rs          -- ウィンドウ一括取得 (CGWindowList)
-  accessibility.rs   -- AXMain/AXRaise によるウィンドウ前面化、AXFocusedWindow 取得
-  cursor.rs          -- マウスカーソル移動 (CGEvent)
+  main.rs            -- entry point, main logic
+  appkit.rs          -- frontmost app lookup (NSWorkspace)
+  display.rs         -- display info (CGDisplay)
+  window.rs          -- window enumeration (CGWindowList)
+  accessibility.rs   -- raising windows via AXMain/AXRaise, AXFocusedWindow lookup
+  cursor.rs          -- mouse cursor movement and clicks (CGEvent)
 ```
