@@ -104,6 +104,17 @@ fn main() {
                 idx
             })
         })
+        .or_else(|| {
+            // デスクトップフォーカス中(Finder がフロントでウィンドウなし)などは
+            // AX からもウィンドウリストからも現在地が見えないため、マウス位置で判定する
+            cursor::mouse_position().map(|(x, y)| {
+                let idx = display_index_for_point(&displays, x, y);
+                debug_log(&format!(
+                    "現在地: マウス位置 ({x:.0},{y:.0}) → display {idx}"
+                ));
+                idx
+            })
+        })
         .unwrap_or_else(|| {
             debug_log("現在地: 判定不能 → display 0 とみなす");
             0
@@ -127,8 +138,20 @@ fn main() {
     let target = match target {
         Some(t) => t,
         None => {
-            eprintln!("ERROR: ターゲットディスプレイにウィンドウが見つかりません");
-            process::exit(1);
+            // ウィンドウがない場合はデスクトップ中央をクリックしてディスプレイ自体をフォーカスする。
+            // Finder がアクティブになり、Ctrl+矢印 での Space 切り替えや
+            // 新規ウィンドウのオープン先がターゲットディスプレイになる
+            debug_log("ターゲットにウィンドウなし → デスクトップをクリック");
+            let (cx, cy) = rect_center(&target_display.bounds);
+            cursor::move_mouse(cx, cy);
+            cursor::click_mouse(cx, cy);
+            println!(
+                "OK: {} [{}] → {} [デスクトップ]",
+                display_label(current_display_idx),
+                front_app_name,
+                display_label(target_display_idx)
+            );
+            process::exit(0);
         }
     };
     debug_log(&format!(
