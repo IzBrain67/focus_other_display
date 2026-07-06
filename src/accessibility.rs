@@ -1,9 +1,12 @@
 use core_foundation::array::{CFArrayGetCount, CFArrayGetValueAtIndex, CFArrayRef};
 use core_foundation::base::{CFRelease, CFTypeRef, TCFType};
+use core_foundation::boolean::CFBoolean;
 use core_foundation::string::{CFString, CFStringRef};
 use core_graphics::display::CGRect;
 use core_graphics::geometry::{CGPoint, CGSize};
 use std::ffi::c_void;
+use std::thread::sleep;
+use std::time::{Duration, Instant};
 
 #[link(name = "ApplicationServices", kind = "framework")]
 unsafe extern "C" {
@@ -24,6 +27,22 @@ unsafe extern "C" {
 
 const AX_VALUE_TYPE_CGPOINT: u32 = 1;
 const AX_VALUE_TYPE_CGSIZE: u32 = 2;
+
+/// CGWindowList と AX の座標のわずかなズレを許容する
+const BOUNDS_TOLERANCE: f64 = 5.0;
+
+fn rect_matches(a: &CGRect, b: &CGRect) -> bool {
+    (a.origin.x - b.origin.x).abs() < BOUNDS_TOLERANCE
+        && (a.origin.y - b.origin.y).abs() < BOUNDS_TOLERANCE
+        && (a.size.width - b.size.width).abs() < BOUNDS_TOLERANCE
+        && (a.size.height - b.size.height).abs() < BOUNDS_TOLERANCE
+}
+
+fn debug_log(msg: &str) {
+    if std::env::var_os("FOD_DEBUG").is_some() {
+        eprintln!("[FOD_DEBUG] {msg}");
+    }
+}
 
 /// AX ウィンドウ要素の AXPosition/AXSize から CGRect を構成する。
 /// 座標は CGWindowList と同じ CG 座標系(グローバル・左上原点)。
@@ -70,6 +89,24 @@ unsafe fn ax_window_rect(win: CFTypeRef) -> Option<CGRect> {
     }
 }
 
+/// アプリ要素の AXFrontmost を読む。
+/// NSWorkspace と違い、run loop を回さない CLI プロセスでも常に最新の状態が返る。
+unsafe fn ax_app_is_frontmost(app: CFTypeRef) -> bool {
+    unsafe {
+        let attr = CFString::new("AXFrontmost");
+        let mut value: CFTypeRef = std::ptr::null();
+        if AXUIElementCopyAttributeValue(app, attr.as_concrete_TypeRef(), &mut value) != 0
+            || value.is_null()
+        {
+            return false;
+        }
+        // kCFBooleanTrue はシングルトンなのでポインタ比較で判定できる
+        let is_true = value == CFBoolean::true_value().as_CFTypeRef();
+        CFRelease(value);
+        is_true
+    }
+}
+
 /// フロントアプリの AXFocusedWindow(キーボードフォーカスを持つウィンドウ)の bounds。
 /// アクセシビリティ権限がない・アプリが AX 未対応などの場合は None。
 pub fn get_focused_window_bounds(pid: i32) -> Option<CGRect> {
@@ -110,51 +147,86 @@ pub fn ax_raise_window(pid: i32, target_bounds: &CGRect) -> bool {
         }
 
         let count = CFArrayGetCount(windows_ref as CFArrayRef);
-        let mut found = false;
 
+        // 位置・サイズの近似一致でターゲットの AX ウィンドウ要素を特定する
+        // (要素は Get ルールなので release 禁止。使用中は windows_ref を保持し続ける)
+        let mut target_win: CFTypeRef = std::ptr::null();
         for i in 0..count {
             let win = CFArrayGetValueAtIndex(windows_ref as CFArrayRef, i);
             let Some(rect) = ax_window_rect(win) else {
                 continue;
             };
-
-            // Match by position (within tolerance)
-            let dx = (rect.origin.x - target_bounds.origin.x).abs();
-            let dy = (rect.origin.y - target_bounds.origin.y).abs();
-            let dw = (rect.size.width - target_bounds.size.width).abs();
-            let dh = (rect.size.height - target_bounds.size.height).abs();
-
-            if dx < 5.0 && dy < 5.0 && dw < 5.0 && dh < 5.0 {
-                let cf_true = core_foundation::boolean::CFBoolean::true_value();
-
-                // 先にアプリを frontmost にする。背面のまま AXMain を設定しても、
-                // アクティベーション時にアプリが前回のキーウィンドウを復元して上書きされるため
-                let frontmost_attr = CFString::new("AXFrontmost");
-                AXUIElementSetAttributeValue(
-                    app,
-                    frontmost_attr.as_concrete_TypeRef(),
-                    cf_true.as_CFTypeRef(),
-                );
-
-                // AXMain: 最前面のアプリ内でキーウィンドウを切り替える
-                let main_attr = CFString::new("AXMain");
-                AXUIElementSetAttributeValue(
-                    win,
-                    main_attr.as_concrete_TypeRef(),
-                    cf_true.as_CFTypeRef(),
-                );
-
-                // AXRaise
-                let raise_action = CFString::new("AXRaise");
-                AXUIElementPerformAction(win, raise_action.as_concrete_TypeRef());
-
-                found = true;
+            if rect_matches(&rect, target_bounds) {
+                target_win = win;
                 break;
             }
         }
 
+        if target_win.is_null() {
+            debug_log(&format!(
+                "AXWindows {count} 個に bounds が一致するウィンドウなし"
+            ));
+            CFRelease(windows_ref);
+            CFRelease(app);
+            return false;
+        }
+
+        let cf_true = CFBoolean::true_value();
+        let frontmost_attr = CFString::new("AXFrontmost");
+        let main_attr = CFString::new("AXMain");
+        let raise_action = CFString::new("AXRaise");
+        let start = Instant::now();
+
+        // AXMain + AXRaise を設定してからアクティブ化する。
+        // アプリがこれを尊重すればターゲットが直接キーウィンドウになり、
+        // 前回のキーウィンドウが一瞬フォーカスされるのを避けられる
+        AXUIElementSetAttributeValue(
+            target_win,
+            main_attr.as_concrete_TypeRef(),
+            cf_true.as_CFTypeRef(),
+        );
+        AXUIElementPerformAction(target_win, raise_action.as_concrete_TypeRef());
+        AXUIElementSetAttributeValue(
+            app,
+            frontmost_attr.as_concrete_TypeRef(),
+            cf_true.as_CFTypeRef(),
+        );
+
+        // アクティベーションは非同期に完了し、完了時にアプリが前回のキーウィンドウを
+        // 復元して AXMain を上書きすることがある(Chrome 等)。
+        // フォーカスがターゲットに載ったと確認できるまで AXMain + AXRaise を再設定し続ける
+        let mut confirmed = false;
+        for attempt in 1..=40 {
+            if ax_app_is_frontmost(app)
+                && get_focused_window_bounds(pid).is_some_and(|b| rect_matches(&b, target_bounds))
+            {
+                debug_log(&format!(
+                    "フォーカス確定 (attempt {attempt}, {:?})",
+                    start.elapsed()
+                ));
+                confirmed = true;
+                break;
+            }
+            AXUIElementSetAttributeValue(
+                target_win,
+                main_attr.as_concrete_TypeRef(),
+                cf_true.as_CFTypeRef(),
+            );
+            AXUIElementPerformAction(target_win, raise_action.as_concrete_TypeRef());
+            sleep(Duration::from_millis(10));
+        }
+        if !confirmed {
+            debug_log(&format!(
+                "フォーカスを確認できないままタイムアウト ({:?})",
+                start.elapsed()
+            ));
+        }
+
         CFRelease(windows_ref);
         CFRelease(app);
-        found
+        // ウィンドウを特定して raise まで実行できていれば true。
+        // ここで false を返すと main 側が activateWithOptions にフォールバックし、
+        // かえって別ウィンドウ(前回キーウィンドウ)を前面化してしまう
+        true
     }
 }
